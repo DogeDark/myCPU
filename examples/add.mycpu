@@ -1,0 +1,18 @@
+data:
+  first 10
+  second 5
+  result 0
+
+main:
+  // set registers
+  set ra first
+  set rb second
+
+  // add
+  add
+
+  // set memory
+  set result rc
+
+  // exit
+  exit 0

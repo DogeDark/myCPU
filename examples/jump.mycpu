@@ -1,0 +1,23 @@
+data:
+  // Times looped
+  count 0
+  // Increment by
+  increment 1
+  // Loop 5 times
+  done 5
+
+main:
+  // If count & done are not equal, jump to loop
+  neq count done loop
+
+  exit 0
+
+loop:
+  // Increment count
+  set ra count
+  set rb increment
+  add
+  set count rc
+
+  // jump to main
+  jump main
