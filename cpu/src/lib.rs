@@ -29,7 +29,6 @@ impl Cpu {
     pub fn run(&mut self) -> u8 {
         loop {
             let opcode: OpCode = self.current_memory().into();
-            println!("{:?}", opcode);
             match opcode {
                 OpCode::Nop => {}
                 OpCode::Exit => {
@@ -63,7 +62,6 @@ impl Cpu {
                     self.set_memory(address, self.rb);
                 }
                 OpCode::StoreC => {
-                    println!("STORING C");
                     let address = self.memory_next_address();
                     self.set_memory(address, self.rc);
                 }
@@ -128,7 +126,6 @@ impl Cpu {
     }
     /// Set a value in memory from an address
     pub fn set_memory(&mut self, address: u32, value: u8) {
-        println!("SETTING MEM: {address} = {value}");
         self.memory[address as usize] = value;
     }
     /// Get the next byte in memory

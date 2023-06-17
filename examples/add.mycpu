@@ -1,18 +1,18 @@
 data:
-  first 10
-  second 5
-  result 0
+  u8 first 10
+  u8 second 5
+  u8 result 0
 
 main:
   // set registers
-  set ra first
-  set rb second
+  loada first
+  loadb second
 
   // add
   add
 
   // set memory
-  set result rc
+  storec result
 
   // exit
   exit 0

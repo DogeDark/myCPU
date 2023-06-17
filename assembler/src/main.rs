@@ -1,4 +1,71 @@
+// op [dest] [src]
+/*
+Memory Structure
+
+jump main
+data
+data
+data
+..
+main
+instruction
+instruction
+instruction other
+other
+*/
+use clap::Parser;
+use regex::Regex;
 use std::fs;
+use tokens::Token;
+
+mod tokens;
+
+#[derive(Debug, Parser)]
+struct Args {
+    /// Path to the assembly file
+    #[arg(short, long)]
+    path: String,
+    /// Output file name/path
+    #[arg(short, long)]
+    output: String,
+}
+
+fn main() {
+    let args = Args::parse();
+    let content = fs::read_to_string(args.path).expect("failed to read file");
+    let lines: Vec<&str> = content.lines().collect();
+
+    let (section_labels, section_tokens) = get_sections(lines);
+    println!("{:?}", section_labels);
+    println!("{:?}", section_tokens);
+}
+
+/// Returns labels found with their line index
+fn get_sections(lines: Vec<&str>) -> (Vec<&str>, Vec<Vec<Token>>) {
+    let regex = Regex::new("[a-zA-Z]*:").unwrap();
+
+    let mut labels = Vec::new();
+    let mut sections = Vec::new();
+    let mut tokens = Vec::new();
+
+    for line in lines {
+        let line = line.trim();
+        if regex.is_match(line) {
+            labels.push(line);
+            if labels.len() > 1 {
+                sections.push(tokens);
+                tokens = Vec::new();
+            }
+        } else {
+            tokens.push(Token::from(line));
+        }
+    }
+    sections.push(tokens);
+
+    (labels, sections)
+}
+
+/*use std::fs;
 
 use clap::Parser;
 
@@ -180,3 +247,4 @@ enum Register {
     Rb,
     Rc,
 }
+*/

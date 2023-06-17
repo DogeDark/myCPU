@@ -23,7 +23,7 @@ fn main() {
     println!("Emulator exited with code {code}");
 
     if let Some(addr) = args.read_mem {
-        let val = cpu.memory_get(addr);
+        let val = cpu.get_memory(addr);
         println!("{addr} = {val}");
     }
 }
