@@ -1,0 +1,17 @@
+data:
+  u8 end 5
+  u8 count 0
+  u8 increment 1
+
+main:
+  loada count
+  loadb end
+  jneq loop
+  exit 0
+
+loop:
+  loada count
+  loadb increment
+  add
+  storec count
+  jump main

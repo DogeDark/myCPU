@@ -43,7 +43,7 @@ fn main() {
 
     let bytes = build_bytes(section_labels, section_tokens);
     println!("{:?}", bytes);
-    //fs::write(args.output, bytes).expect("failed to write bytes to output file");
+    fs::write(args.output, bytes).expect("failed to write bytes to output file");
 }
 
 /// Returns section labels and their tokens
@@ -78,6 +78,7 @@ fn build_bytes(section_labels: Vec<&str>, section_tokens: Vec<Vec<Token>>) -> Ve
     let mut code_bytes: Vec<u8> = Vec::new();
 
     let mut section_sizes = Vec::new();
+    section_sizes.push(JUMP_OFFSET);
 
     // Calculate section lengths
     for (index, _) in section_labels.iter().enumerate() {
@@ -85,13 +86,15 @@ fn build_bytes(section_labels: Vec<&str>, section_tokens: Vec<Vec<Token>>) -> Ve
         section_sizes.push(size);
     }
 
+    let mut total_size = section_sizes[0];
     for (index, label) in section_labels.iter().enumerate() {
         if index == 0 {
             continue;
         }
 
-        let size = section_sizes[index - 1];
-        label_addresses.insert(label, size + 1);
+        let size = section_sizes[index];
+        total_size += size;
+        label_addresses.insert(label, total_size);
     }
 
     // Convert data into bytes
@@ -205,7 +208,7 @@ fn build_bytes(section_labels: Vec<&str>, section_tokens: Vec<Vec<Token>>) -> Ve
 
     // Put jump instruction before data (5 bytes)
     bytes.push(11);
-    bytes.append(&mut (section_sizes[0] + JUMP_OFFSET).to_be_bytes().to_vec());
+    bytes.append(&mut (section_sizes[1] + JUMP_OFFSET).to_be_bytes().to_vec());
 
     // Put data section (1 * token bytes)
     bytes.append(&mut data_bytes);

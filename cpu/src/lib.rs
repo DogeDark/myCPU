@@ -29,6 +29,7 @@ impl Cpu {
     pub fn run(&mut self) -> u8 {
         loop {
             let opcode: OpCode = self.current_memory().into();
+            //println!("{:?}", opcode);
             match opcode {
                 OpCode::Nop => {}
                 OpCode::Exit => {
@@ -71,29 +72,29 @@ impl Cpu {
                     continue;
                 }
                 OpCode::Jeq => {
+                    let address = self.memory_next_address();
                     if self.ra == self.rb {
-                        let address = self.memory_next_address();
                         self.set_ptr(address);
                         continue;
                     }
                 }
                 OpCode::Jneq => {
+                    let address = self.memory_next_address();
                     if self.ra != self.rb {
-                        let address = self.memory_next_address();
                         self.set_ptr(address);
                         continue;
                     }
                 }
                 OpCode::Jgt => {
+                    let address = self.memory_next_address();
                     if self.ra > self.rb {
-                        let address = self.memory_next_address();
                         self.set_ptr(address);
                         continue;
                     }
                 }
                 OpCode::Jlt => {
+                    let address = self.memory_next_address();
                     if self.ra < self.rb {
-                        let address = self.memory_next_address();
                         self.set_ptr(address);
                         continue;
                     }
