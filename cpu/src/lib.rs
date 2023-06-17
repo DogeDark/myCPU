@@ -1,18 +1,25 @@
-type MemorySize = u32;
+pub mod operations;
+use operations::OpCode;
+
+pub type MemorySize = u32;
 
 pub struct Cpu {
     memory: Vec<u8>,
-    memory_ptr: MemorySize,
+    ptr: MemorySize,
     ra: u8,
     rb: u8,
     rc: u8,
 }
 
 impl Cpu {
-    pub fn new(program: Vec<u8>) -> Self {
+    pub fn new(memory: Vec<u8>) -> Self {
+        if memory.len() > MemorySize::MAX as usize {
+            panic!("memory length cannot be larger than {}", MemorySize::MAX);
+        }
+
         Self {
-            memory: program,
-            memory_ptr: 0,
+            memory,
+            ptr: 0,
             ra: 0,
             rb: 0,
             rc: 0,
@@ -21,216 +28,159 @@ impl Cpu {
 
     pub fn run(&mut self) -> u8 {
         loop {
-            let op = OpCode::from(self.memory_current());
-            println!("{:?}", op);
-
-            match op {
-                OpCode::NoOp => {}
+            let opcode: OpCode = self.current_memory().into();
+            println!("{:?}", opcode);
+            match opcode {
+                OpCode::Nop => {}
                 OpCode::Exit => {
-                    let value = self.memory_next();
-                    return value;
+                    let code = self.memory_next_byte();
+                    return code;
                 }
-                OpCode::Jump => {
-                    let address = self.memory_next_u32();
-                    println!("JUMPING TO {:?}", address);
-                    self.memory_set_ptr(address);
-                    // Avoid calling memory_next again
-                    continue;
-                }
-                OpCode::Add => {
-                    println!("Adding: {} + {}", self.ra, self.rb);
-                    self.rc = self.ra + self.rb;
-                }
-                OpCode::Subtract => {
-                    self.rc = self.ra - self.rb;
-                }
-                OpCode::Multiply => {
-                    self.rc = self.ra * self.rb;
-                }
-                OpCode::SetRegA => {
-                    let address = self.memory_next_u32();
-                    let value = self.memory_get(address);
-                    println!("Setting reg A: {} = {}", address, value);
+                OpCode::Add => self.rc = self.ra + self.rb,
+                OpCode::Subtract => self.rc = self.ra - self.rb,
+                OpCode::Multiply => self.rc = self.ra * self.rb,
+                OpCode::LoadA => {
+                    let address = self.memory_next_address();
+                    let value = self.get_memory(address);
                     self.ra = value;
                 }
-                OpCode::SetRegB => {
-                    let address = self.memory_next_u32();
-                    let value = self.memory_get(address);
-                    println!("Setting reg B: {} = {}", address, value);
+                OpCode::LoadB => {
+                    let address = self.memory_next_address();
+                    let value = self.get_memory(address);
                     self.rb = value;
                 }
-                OpCode::SetRegC => {
-                    let address = self.memory_next_u32();
-                    let value = self.memory_get(address);
+                OpCode::LoadC => {
+                    let address = self.memory_next_address();
+                    let value = self.get_memory(address);
                     self.rc = value;
                 }
-                OpCode::SetMemA => {
-                    let address = self.memory_next_u32();
-                    let value = self.ra;
-                    self.memory_set(address, value);
+                OpCode::StoreA => {
+                    let address = self.memory_next_address();
+                    self.set_memory(address, self.ra);
                 }
-                OpCode::SetMemB => {
-                    let address = self.memory_next_u32();
-                    let value = self.rb;
-                    self.memory_set(address, value);
+                OpCode::StoreB => {
+                    let address = self.memory_next_address();
+                    self.set_memory(address, self.rb);
                 }
-                OpCode::SetMemC => {
-                    let address = self.memory_next_u32();
-                    let value = self.rc;
-                    println!("Setting mem from reg C: {} = {}", address, value);
-                    self.memory_set(address, value);
+                OpCode::StoreC => {
+                    println!("STORING C");
+                    let address = self.memory_next_address();
+                    self.set_memory(address, self.rc);
+                }
+                OpCode::Jump => {
+                    let address = self.memory_next_address();
+                    self.set_ptr(address);
+                    continue;
+                }
+                OpCode::Jeq => {
+                    if self.ra == self.rb {
+                        let address = self.memory_next_address();
+                        self.set_ptr(address);
+                        continue;
+                    }
+                }
+                OpCode::Jneq => {
+                    if self.ra != self.rb {
+                        let address = self.memory_next_address();
+                        self.set_ptr(address);
+                        continue;
+                    }
+                }
+                OpCode::Jgt => {
+                    if self.ra > self.rb {
+                        let address = self.memory_next_address();
+                        self.set_ptr(address);
+                        continue;
+                    }
+                }
+                OpCode::Jlt => {
+                    if self.ra < self.rb {
+                        let address = self.memory_next_address();
+                        self.set_ptr(address);
+                        continue;
+                    }
                 }
             }
 
-            // Done
-            self.memory_next();
+            self.increment_ptr();
         }
     }
 
-    pub fn memory_get(&mut self, address: MemorySize) -> u8 {
+    /// Increment the memory pointer
+    pub fn increment_ptr(&mut self) {
+        self.ptr += 1;
+    }
+    /// Set the memory pointer to a new location
+    pub fn set_ptr(&mut self, address: u32) {
+        self.ptr = address;
+    }
+    /// Get a value in memory from the current pointer
+    pub fn current_memory(&self) -> u8 {
+        self.memory[self.ptr as usize]
+    }
+    /// Get a value in memory from an address
+    pub fn get_memory(&self, address: u32) -> u8 {
         self.memory[address as usize]
     }
-    pub fn memory_set(&mut self, address: MemorySize, value: u8) {
+    /// Get the entire memory
+    pub fn memory(&self) -> &Vec<u8> {
+        &self.memory
+    }
+    /// Set a value in memory from an address
+    pub fn set_memory(&mut self, address: u32, value: u8) {
+        println!("SETTING MEM: {address} = {value}");
         self.memory[address as usize] = value;
     }
-    pub fn memory_current(&self) -> u8 {
-        self.memory[self.memory_ptr as usize]
+    /// Get the next byte in memory
+    pub fn memory_next_byte(&self) -> u8 {
+        self.memory[self.ptr as usize + 1]
     }
-    pub fn memory_next(&mut self) -> u8 {
-        if self.memory_ptr == <MemorySize>::MAX {
-            self.memory_ptr = 0;
-        } else {
-            self.memory_ptr += 1;
-        }
-        self.memory[self.memory_ptr as usize]
-    }
-    pub fn memory_next_u32(&mut self) -> u32 {
-        let s1 = self.memory_next();
-        let s2 = self.memory_next();
-        let s3 = self.memory_next();
-        let s4 = self.memory_next();
-        let slice = [s1, s2, s3, s4];
-        u32::from_be_bytes(slice)
-    }
-    pub fn memory_set_ptr(&mut self, address: MemorySize) {
-        self.memory_ptr = address;
-    }
-}
+    /// Get the next four bytes in memory
+    pub fn memory_next_address(&mut self) -> u32 {
+        let bytes = [
+            self.memory[self.ptr as usize + 1],
+            self.memory[self.ptr as usize + 2],
+            self.memory[self.ptr as usize + 3],
+            self.memory[self.ptr as usize + 4],
+        ];
 
-#[derive(Debug)]
-pub enum OpCode {
-    /// No operation
-    NoOp,
-    /// Exit with code
-    Exit,
-    /// Jump to a location in memory
-    Jump,
-    /// Add the two values (ra + rb) and store it in rc
-    Add,
-    /// Subtract the two values (ra - rb) and store it in rc
-    Subtract,
-    /// Multiply the two values (ra * rb) and store it in rc
-    Multiply,
-    // Divide the two values (ra / rb) and store it in rc
-    //Divide,
-    /// Set registers from memory address
-    SetRegA,
-    SetRegB,
-    SetRegC,
-    /// Set memory from registers
-    SetMemA,
-    SetMemB,
-    SetMemC,
-}
-
-impl From<u8> for OpCode {
-    fn from(value: u8) -> Self {
-        match value {
-            0x00 => Self::NoOp,
-            0x01 => Self::Exit,
-            0x02 => Self::Jump,
-            // Operations
-            0x03 => Self::Add,
-            0x04 => Self::Subtract,
-            0x05 => Self::Multiply,
-            //0x6 => Self::Divide,
-            // Set registers
-            0x07 => Self::SetRegA,
-            0x08 => Self::SetRegB,
-            0x09 => Self::SetRegC,
-            // Set memory from registers
-            0x0A => Self::SetMemA,
-            0x0B => Self::SetMemB,
-            0x0C => Self::SetMemC,
-            // Unknown
-            _ => panic!("unknown operation"),
-        }
-    }
-}
-
-impl Into<u8> for OpCode {
-    fn into(self) -> u8 {
-        match self {
-            Self::NoOp => 0x00,
-            Self::Exit => 0x01,
-            Self::Jump => 0x02,
-            Self::Add => 0x03,
-            Self::Subtract => 0x04,
-            Self::Multiply => 0x05,
-            Self::SetRegA => 0x07,
-            Self::SetRegB => 0x08,
-            Self::SetRegC => 0x09,
-            Self::SetMemA => 0x0A,
-            Self::SetMemB => 0x0B,
-            Self::SetMemC => 0x0C,
-        }
+        self.ptr += 4;
+        u32::from_be_bytes(bytes)
     }
 }
 
 #[test]
 fn test_cpu() {
-    let mut program = vec![0; MemorySize::MAX as usize];
+    let mut bytes = Vec::new();
 
-    // Set values
-    program[253] = 10;
-    program[254] = 5;
+    // Jump
+    bytes.push(12);
+    bytes.append(&mut vec![0, 0, 0, 8]);
+    // Store values
+    bytes.push(10);
+    bytes.push(5);
+    bytes.push(0);
+    // Load register A
+    bytes.push(6);
+    bytes.append(&mut vec![0, 0, 0, 5]);
+    // Load register B
+    bytes.push(7);
+    bytes.append(&mut vec![0, 0, 0, 6]);
+    // Add
+    bytes.push(3);
+    // Store C
+    bytes.push(11);
+    bytes.append(&mut vec![0, 0, 0, 7]);
+    // Exit
+    bytes.push(2);
+    bytes.push(0);
 
-    // Set reg A
-    program[0] = 0x07;
-    // From mem address
-    program[1] = 0b0000_0000;
-    program[2] = 0b0000_0000;
-    program[3] = 0b0000_0000;
-    program[4] = 0b1111_1101;
+    println!("{:?}", bytes);
 
-    // Set reg B
-    program[5] = 0x08;
-    // From mem address
-    program[6] = 0b0000_0000;
-    program[7] = 0b0000_0000;
-    program[8] = 0b0000_0000;
-    program[9] = 0b1111_1110;
-
-    // Add reg A & B setting reg C
-    program[10] = 0x03;
-
-    // Set mem from reg C
-    program[11] = 0x0C;
-    // at address
-    program[12] = 0b0000_0000;
-    program[13] = 0b0000_0000;
-    program[14] = 0b0000_0000;
-    program[15] = 0b1111_1111;
-
-    // exit program
-    program[16] = 0x01;
-    program[17] = 0;
-
-    let mut cpu = Cpu::new(program);
-    let res = cpu.run();
-    let data = cpu.memory_get(255);
-
-    println!("");
-    println!("Code: {res} | 255: {data}");
-    println!("");
+    let mut cpu = Cpu::new(bytes);
+    let code = cpu.run();
+    let memory = cpu.memory();
+    let data = cpu.get_memory(7);
+    println!("{:?}", memory);
+    println!("Code {code} | Data {data}");
 }
