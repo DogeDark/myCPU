@@ -93,3 +93,32 @@ impl From<&str> for Token {
         }
     }
 }
+
+pub fn calc_byte_len(tokens: &Vec<Token>) -> u32 {
+    let mut size = 0;
+
+    for token in tokens {
+        match token {
+            Token::Nop => size += 1,
+            Token::Exit(_) => size += 2,
+            Token::U8Data(_, _) => size += 1,
+            Token::Add => size += 1,
+            Token::Subtract => size += 1,
+            Token::Multiply => size += 1,
+            Token::LoadA(_) => size += 5,
+            Token::LoadB(_) => size += 5,
+            Token::LoadC(_) => size += 5,
+            Token::StoreA(_) => size += 5,
+            Token::StoreB(_) => size += 5,
+            Token::StoreC(_) => size += 5,
+            Token::Jump(_) => size += 5,
+            Token::Jeq(_) => size += 5,
+            Token::Jneq(_) => size += 5,
+            Token::Jgt(_) => size += 5,
+            Token::Jlt(_) => size += 5,
+            Token::Ignore => {},
+        }
+    }
+
+    size
+}

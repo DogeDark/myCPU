@@ -15,10 +15,12 @@ other
 */
 use clap::Parser;
 use regex::Regex;
-use std::fs;
-use tokens::Token;
+use std::{collections::HashMap, fs};
+use tokens::{calc_byte_len, Token};
 
 mod tokens;
+
+const JUMP_OFFSET: u32 = 5;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -38,9 +40,13 @@ fn main() {
     let (section_labels, section_tokens) = get_sections(lines);
     println!("{:?}", section_labels);
     println!("{:?}", section_tokens);
+
+    let bytes = build_bytes(section_labels, section_tokens);
+    println!("{:?}", bytes);
+    //fs::write(args.output, bytes).expect("failed to write bytes to output file");
 }
 
-/// Returns labels found with their line index
+/// Returns section labels and their tokens
 fn get_sections(lines: Vec<&str>) -> (Vec<&str>, Vec<Vec<Token>>) {
     let regex = Regex::new("[a-zA-Z]*:").unwrap();
 
@@ -51,7 +57,7 @@ fn get_sections(lines: Vec<&str>) -> (Vec<&str>, Vec<Vec<Token>>) {
     for line in lines {
         let line = line.trim();
         if regex.is_match(line) {
-            labels.push(line);
+            labels.push(line.trim_end_matches(":"));
             if labels.len() > 1 {
                 sections.push(tokens);
                 tokens = Vec::new();
@@ -65,186 +71,147 @@ fn get_sections(lines: Vec<&str>) -> (Vec<&str>, Vec<Vec<Token>>) {
     (labels, sections)
 }
 
-/*use std::fs;
+/// Build a list of executable bytes from a list of labels and tokens
+fn build_bytes(section_labels: Vec<&str>, section_tokens: Vec<Vec<Token>>) -> Vec<u8> {
+    let mut label_addresses: HashMap<&str, u32> = HashMap::new();
+    let mut data_bytes: Vec<u8> = Vec::new();
+    let mut code_bytes: Vec<u8> = Vec::new();
 
-use clap::Parser;
+    let mut section_sizes = Vec::new();
 
-const JUMP_OFFSET: u32 = 5;
-
-#[derive(Debug, Parser)]
-struct Args {
-    /// Path to the assembly file
-    #[arg(short, long)]
-    path: String,
-
-    /// The output file name
-    #[arg(short, long)]
-    output: String,
-}
-
-fn main() {
-    let args = Args::parse();
-    let file = fs::read_to_string(args.path).expect("failed to read file");
-
-    let mut location = Location::Unknown;
-    let mut program: Vec<Expr> = Vec::new();
-    let mut lines = file.lines();
-
-    loop {
-        if let Some(line) = lines.next() {
-            match line.trim() {
-                "data:" => location = Location::Data,
-                "main:" => location = Location::Main,
-                "" => {}
-                line => match location {
-                    Location::Data => {
-                        let split: Vec<&str> = line.split(" ").collect();
-                        let var = split[0];
-                        let value: u8 = split[1].parse().unwrap();
-                        println!("{value}");
-                        program.push(Expr::Data(var, value))
-                    }
-                    Location::Main => {
-                        let split: Vec<&str> = line.split(" ").collect();
-                        match split[0] {
-                            "set" => {
-                                match split[1] {
-                                    "ra" => program.push(Expr::SetRegister(Register::Ra, split[2])),
-                                    "rb" => program.push(Expr::SetRegister(Register::Rb, split[2])),
-                                    "rc" => program.push(Expr::SetRegister(Register::Rc, split[2])),
-                                    var => {
-                                        // Set variable (from mem) to register
-                                        let reg = match split[2] {
-                                            "ra" => Register::Ra,
-                                            "rb" => Register::Rb,
-                                            "rc" => Register::Rc,
-                                            _ => panic!("unknown register: {}", line),
-                                        };
-
-                                        program.push(Expr::SetMemory(var, reg));
-                                    }
-                                }
-                            }
-                            "add" => program.push(Expr::Add),
-                            "exit" => {
-                                let value: u8 = split[1].parse().unwrap();
-                                program.push(Expr::Exit(value));
-                            }
-                            "nop" => program.push(Expr::NoOp),
-                            _ => {}
-                        }
-                    }
-                    Location::Unknown => {}
-                },
-            }
-        } else {
-            break;
-        }
+    // Calculate section lengths
+    for (index, _) in section_labels.iter().enumerate() {
+        let size = calc_byte_len(&section_tokens[index]);
+        section_sizes.push(size);
     }
 
-    println!("{:?}", program);
-    let bytes = build_bytes(program);
-    fs::write(args.output, bytes).unwrap();
-}
+    for (index, label) in section_labels.iter().enumerate() {
+        if index == 0 {
+            continue;
+        }
 
-fn build_bytes(program: Vec<Expr>) -> Vec<u8> {
-    let mut data: Vec<(&str, u8)> = Vec::new();
-    let mut bytes: Vec<u8> = Vec::new();
+        let size = section_sizes[index - 1];
+        label_addresses.insert(label, size + 1);
+    }
 
-    for expr in program {
-        match expr {
-            Expr::Data(var, value) => data.push((var, value)),
-            Expr::SetRegister(reg, var) => {
-                if let Some(i) = get_var_index(var, &data) {
-                    match reg {
-                        Register::Ra => bytes.push(0x07),
-                        Register::Rb => bytes.push(0x08),
-                        Register::Rc => bytes.push(0x09),
-                    };
-                    let mut addr = (i as u32 + JUMP_OFFSET).to_be_bytes().to_vec();
-                    bytes.append(&mut addr);
-                } else {
-                    panic!("variable {var} doesn't exist");
+    // Convert data into bytes
+    for (index, token) in section_tokens[0].iter().enumerate() {
+        match token {
+            Token::U8Data(label, value) => {
+                label_addresses.insert(label, index as u32 + JUMP_OFFSET);
+                data_bytes.push(*value);
+            }
+            _ => {}
+        };
+    }
+
+    for (index, label) in section_labels.iter().enumerate() {
+        match *label {
+            "data" => {}
+            _ => {
+                for token in &section_tokens[index] {
+                    match token {
+                        Token::Nop => code_bytes.push(0),
+                        Token::Exit(value) => code_bytes.append(&mut vec![1, *value]),
+                        Token::U8Data(_, _) => panic!("data types should be in the data section"),
+                        Token::Add => code_bytes.push(2),
+                        Token::Subtract => code_bytes.push(3),
+                        Token::Multiply => code_bytes.push(4),
+                        Token::LoadA(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(5);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::LoadB(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(6);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::LoadC(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(7);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::StoreA(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(8);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::StoreB(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(9);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::StoreC(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(10);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::Jump(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(11);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::Jeq(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(12);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::Jneq(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(13);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::Jgt(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(14);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::Jlt(label) => {
+                            let addr = label_addresses
+                                .get(label.as_str())
+                                .expect("label {label} doesn't exist");
+                            code_bytes.push(15);
+                            code_bytes.append(&mut addr.to_be_bytes().to_vec());
+                        }
+                        Token::Ignore => {}
+                    }
                 }
-            }
-            Expr::Add => bytes.push(0x03),
-            Expr::SetMemory(var, reg) => {
-                if let Some(i) = get_var_index(var, &data) {
-                    match reg {
-                        Register::Ra => bytes.push(0x0A),
-                        Register::Rb => bytes.push(0x0B),
-                        Register::Rc => bytes.push(0x0C),
-                    };
-                    let mut addr = (i as u32 + JUMP_OFFSET).to_be_bytes().to_vec();
-                    bytes.append(&mut addr);
-                } else {
-                    panic!("variable {var} doesn't exist");
-                }
-            }
-            Expr::Exit(val) => {
-                bytes.push(0x01);
-                bytes.push(val);
-            }
-            Expr::NoOp => bytes.push(0x00),
-            Expr::Jump(addr) => {
-                bytes.push(0x02);
-                let mut addr = addr.to_be_bytes().to_vec();
-                bytes.append(&mut addr);
             }
         };
     }
 
-    let mut final_bytes = Vec::new();
+    let mut bytes = Vec::new();
 
-    // Jump to the program start
-    final_bytes.push(0x02);
-    let mut addr = (data.len() as u32 + JUMP_OFFSET).to_be_bytes().to_vec();
-    final_bytes.append(&mut addr);
+    // Put jump instruction before data (5 bytes)
+    bytes.push(11);
+    bytes.append(&mut (section_sizes[0] + JUMP_OFFSET).to_be_bytes().to_vec());
 
-    // Add the variables to front of program
-    for (_, value) in data {
-        println!("{value}");
-        final_bytes.push(value);
-    }
+    // Put data section (1 * token bytes)
+    bytes.append(&mut data_bytes);
 
-    // Add the rest of the program
-    final_bytes.append(&mut bytes);
+    // Put code bytes
+    bytes.append(&mut code_bytes);
 
-    final_bytes
+    bytes
 }
-
-fn get_var_index(var_name: &str, data: &Vec<(&str, u8)>) -> Option<usize> {
-    for (i, (var, _)) in data.iter().enumerate() {
-        if *var == var_name {
-            return Some(i);
-        }
-    }
-
-    None
-}
-
-#[derive(Debug)]
-enum Location {
-    Data,
-    Main,
-    Unknown,
-}
-
-#[derive(Debug)]
-enum Expr<'a> {
-    Data(&'a str, u8),
-    SetRegister(Register, &'a str),
-    Add,
-    SetMemory(&'a str, Register),
-    Exit(u8),
-    NoOp,
-    Jump(u32),
-}
-
-#[derive(Debug)]
-enum Register {
-    Ra,
-    Rb,
-    Rc,
-}
-*/
